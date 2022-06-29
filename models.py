@@ -27,22 +27,6 @@ def convTranspose2d(*args, **kwargs):
 def batchNorm2d(*args, **kwargs):
     return nn.BatchNorm2d(*args, **kwargs)
 
-def linear(*args, **kwargs):
-    return spectral_norm(nn.Linear(*args, **kwargs))
-
-class PixelNorm(nn.Module):
-    def forward(self, input):
-        return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
-
-class Reshape(nn.Module):
-    def __init__(self, shape):
-        super().__init__()
-        self.target_shape = shape
-
-    def forward(self, feat):
-        batch = feat.shape[0]
-        return feat.view(batch, *self.target_shape)        
-
 
 class GLU(nn.Module):
     def forward(self, x):
@@ -341,45 +325,3 @@ class SimpleDecoder(nn.Module):
     def forward(self, input):
         # input shape: c x 4 x 4
         return self.main(input)
-
-from random import randint
-def random_crop(image, size):
-    h, w = image.shape[2:]
-    ch = randint(0, h-size-1)
-    cw = randint(0, w-size-1)
-    return image[:,:,ch:ch+size,cw:cw+size]
-
-class TextureDiscriminator(nn.Module):
-    def __init__(self, ndf=64, nc=3, im_size=512):
-        super(TextureDiscriminator, self).__init__()
-        self.ndf = ndf
-        self.im_size = im_size
-
-        nfc_multi = {4:16, 8:8, 16:8, 32:4, 64:2, 128:1, 256:0.5, 512:0.25, 1024:0.125}
-        nfc = {}
-        for k, v in nfc_multi.items():
-            nfc[k] = int(v*ndf)
-
-        self.down_from_small = nn.Sequential( 
-                                            conv2d(nc, nfc[256], 4, 2, 1, bias=False), 
-                                            nn.LeakyReLU(0.2, inplace=True),
-                                            DownBlock(nfc[256],  nfc[128]),
-                                            DownBlock(nfc[128],  nfc[64]),
-                                            DownBlock(nfc[64],  nfc[32]), )
-        self.rf_small = nn.Sequential(
-                            conv2d(nfc[16], 1, 4, 1, 0, bias=False))
-
-        self.decoder_small = SimpleDecoder(nfc[32], nc)
-        
-    def forward(self, img, label):
-        img = random_crop(img, size=128)
-
-        feat_small = self.down_from_small(img)
-        rf = self.rf_small(feat_small).view(-1)
-        
-        if label=='real':    
-            rec_img_small = self.decoder_small(feat_small)
-
-            return rf, rec_img_small, img
-
-        return rf
